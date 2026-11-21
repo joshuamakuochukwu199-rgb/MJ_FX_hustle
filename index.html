@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>MJ FX Hustle — Chart Study</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1220;--panel:#121e30;--line:#26364d;--text:#edf3fb;--muted:#a8b6c9;--accent:#55d6be}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#0b1220,#111c2d);color:var(--text);font:16px system-ui,Arial,sans-serif}
+main{max-width:900px;margin:auto;padding:24px 16px 60px}.brand{font-size:clamp(26px,5vw,38px);font-weight:800;letter-spacing:.3px}.sub{color:var(--muted);margin:6px 0 22px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;margin:14px 0}
+label{display:block;font-weight:650;margin-bottom:9px}input[type=file]{width:100%;padding:12px;background:#0b1524;border:1px dashed #486078;border-radius:10px;color:var(--muted)}
+button{border:0;border-radius:11px;padding:13px 18px;background:var(--accent);color:#06221e;font-weight:800;font-size:16px;cursor:pointer;width:100%;margin-top:14px}
+button:disabled{opacity:.55;cursor:wait}.hint,.notice{font-size:13px;color:var(--muted);line-height:1.5}.notice{border-left:3px solid #e4b45e;padding:10px 12px;background:#302817;border-radius:6px;color:#f4dfb4}
+#status{margin:12px 0;color:var(--accent);white-space:pre-wrap}#result{white-space:pre-wrap;line-height:1.65;overflow-wrap:anywhere}
+.preview{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.preview img{width:100px;height:76px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+footer{color:var(--muted);font-size:12px;text-align:center;margin-top:25px}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">MJ FX Hustle</div>
+  <div class="sub">AI-assisted chart study • Upload up to five screenshots together</div>
+
+  <section class="card">
+    <label for="charts">Choose up to 5 chart screenshots</label>
+    <input id="charts" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+    <div class="hint">For best results, include the symbol, timeframe, price scale and indicator labels in the screenshots. The app resizes images before sending them.</div>
+    <div id="preview" class="preview"></div>
+    <button id="analyze">Study charts</button>
+    <div id="status" role="status"></div>
+  </section>
+
+  <section class="card">
+    <h2>Study notes</h2>
+    <div id="result" class="hint">Your chart observations will appear here.</div>
+  </section>
+
+  <section class="notice">
+    Educational use only. This tool may misread chart images and cannot verify live market data. It does not provide buy/sell signals, entries, stop-losses, take-profits, or personalized financial advice. Do not use its output to place trades.
+  </section>
+  <footer>MJ FX Hustle • Chart observations are estimates, not guarantees.</footer>
+</main>
+<script>
+const picker=document.getElementById('charts'), preview=document.getElementById('preview');
+const button=document.getElementById('analyze'), statusBox=document.getElementById('status'), result=document.getElementById('result');
+let selected=[];
+picker.addEventListener('change',()=>{
+  selected=Array.from(picker.files||[]).slice(0,5);
+  preview.innerHTML='';
+  if((picker.files||[]).length>5) statusBox.textContent='Only the first five images will be used.';
+  selected.forEach(file=>{
+    const url=URL.createObjectURL(file), img=document.createElement('img');
+    img.src=url; img.alt='Selected chart screenshot'; preview.appendChild(img);
+  });
+});
+async function compressImage(file){
+  const img=await createImageBitmap(file);
+  const scale=Math.min(1,1400/Math.max(img.width,img.height));
+  const canvas=document.createElement('canvas');
+  canvas.width=Math.round(img.width*scale); canvas.height=Math.round(img.height*scale);
+  canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.82));
+  const data=await new Promise((resolve,reject)=>{
+    const reader=new FileReader(); reader.onload=()=>resolve(reader.result.split(',')[1]);
+    reader.onerror=reject; reader.readAsDataURL(blob);
+  });
+  return {mimeType:'image/jpeg',data};
+}
+button.addEventListener('click',async()=>{
+  if(!selected.length){statusBox.textContent='Select at least one screenshot first.';return;}
+  button.disabled=true; statusBox.textContent='Preparing screenshots…'; result.textContent='';
+  try{
+    const images=[];
+    for(const file of selected) images.push(await compressImage(file));
+    statusBox.textContent='Studying the screenshots…';
+    const response=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({images})});
+    const payload=await response.json().catch(()=>({error:'The server returned an unreadable response.'}));
+    if(!response.ok) throw new Error(payload.error||`Request failed (${response.status})`);
+    result.textContent=payload.analysis||'No analysis was returned.';
+    statusBox.textContent='Study complete. Check uncertain or unreadable labels against the original chart.';
+  }catch(error){
+    statusBox.textContent='Could not complete the study: '+error.message;
+  }finally{button.disabled=false;}
+});
+</script>
+</body>
+</html>
